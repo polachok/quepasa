@@ -7,19 +7,31 @@ use axum::extract::Path as Route;
 use axum::{extract::Extension, response::Json, routing::get, AddExtensionLayer, Router};
 use keepass::{Database, NodeRef};
 use serde::{Deserialize, Serialize};
+use structopt::StructOpt;
 use tracing::info;
+
+#[derive(Debug, StructOpt)]
+struct Options {
+    #[structopt(short, long, help = "read password from stdin")]
+    stdin: bool,
+    #[structopt(help = "path to .kdbx")]
+    file_name: PathBuf,
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     tracing_subscriber::fmt::init();
 
-    let first_arg = std::env::args().nth(1).clone();
-    let path = match first_arg {
-        Some(arg) => Path::new(&arg).to_owned(),
-        None => anyhow::bail!("usage: quepasa <db.kdbx>"),
-    };
-    let mut file = File::open(path)?;
-    let pass = rpassword::prompt_password_stdout("Password: ")?;
+    let options = Options::from_args();
+
+    let mut file = File::open(options.file_name)?;
+    let pass = if options.stdin {
+        let stdin = std::io::stdin();
+        let mut reader = std::io::BufReader::new(stdin);
+        rpassword::read_password_with_reader(Some(&mut reader))
+    } else {
+        rpassword::prompt_password_stdout("Password: ")
+    }?;
     let db = Database::open(&mut file, Some(&pass), None)?;
     let db = Arc::new(db);
 
